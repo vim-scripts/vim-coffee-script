@@ -77,10 +77,8 @@ endfunction
 
 " Check if a whole line is a comment.
 function! s:IsCommentLine(linenum)
-  call cursor(a:linenum, 0)
-  normal ^
-
-  return s:IsComment(a:linenum, col('.'))
+  " Check the first non-whitespace character.
+  return s:IsComment(a:linenum, indent(a:linenum) + 1)
 endfunction
 
 " Repeatedly search a line for a regex until one is found outside a string or
@@ -163,7 +161,7 @@ function! s:GetMatch(curline)
   elseif firstchar == ']'
     return s:SearchPair('\[', '\]')
   elseif a:curline =~ '^else\>'
-    return s:SearchPair('\<if\|unless\|when\>', '\<else\>')
+    return s:SearchPair('\<\%(if\|unless\|when\)\>', '\<else\>')
   elseif a:curline =~ '^catch\>'
     return s:SearchPair('\<try\>', '\<catch\>')
   elseif a:curline =~ '^finally\>'
@@ -195,27 +193,14 @@ function! s:GetTrimmedLine(linenum)
 endfunction
 
 function! s:GetCoffeeIndent(curlinenum)
-  if s:IsCommentLine(a:curlinenum)
-    return -1
-  endif
-
   let prevlinenum = s:GetPrevNormalLine(a:curlinenum)
-  let prevprevlinenum = s:GetPrevNormalLine(prevlinenum)
 
-  " No indenting is needed at the start of a file.
+  " Don't do anything if there is no previous line.
   if !prevlinenum
     return -1
   endif
 
-  let curindent = indent(a:curlinenum)
-  let previndent = indent(prevlinenum)
-
   let curline = s:GetTrimmedLine(a:curlinenum)
-  let prevline = s:GetTrimmedLine(prevlinenum)
-  let prevprevline = s:GetTrimmedLine(prevprevlinenum)
-
-  " Reset the cursor for the following.
-  call cursor(a:curlinenum, 1)
 
   " Try to find a matching pair.
   let matchlinenum = s:GetMatch(curline)
@@ -237,8 +222,14 @@ function! s:GetCoffeeIndent(curlinenum)
     endwhile
   endif
 
+  let prevline = s:GetTrimmedLine(prevlinenum)
+  let previndent = indent(prevlinenum)
+
   " Try indenting logic.
   if prevline =~ s:CONTINUATION
+    let prevprevlinenum = s:GetPrevNormalLine(prevlinenum)
+    let prevprevline = s:GetTrimmedLine(prevprevlinenum)
+
     if prevprevline !~ s:CONTINUATION && prevprevline !~ s:CONTINUATION_BLOCK
       return previndent + &shiftwidth
     endif
@@ -251,11 +242,7 @@ function! s:GetCoffeeIndent(curlinenum)
   elseif prevline =~ s:OUTDENT_AFTER
     if !s:SmartSearch(prevlinenum, s:POSTFIX_CONDITION) ||
     \   s:SmartSearch(prevlinenum, '\<then\>')
-      if curindent < previndent
-        return -1
-      else
-        return curindent - &shiftwidth
-      endif
+      return previndent - &shiftwidth
     endif
   endif
 
