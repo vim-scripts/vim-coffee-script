@@ -20,17 +20,18 @@ if exists("*GetCoffeeIndent")
   finish
 endif
 
-" Keywords and operators to indent after
-let s:INDENT_AFTER = '^\%(if\|unless\|else\|for\|while\|until\|'
-\                  . 'loop\|switch\|when\|try\|catch\|finally\|'
-\                  . 'class\)\>'
-\                  . '\|'
-\                  . '\%([([{:=]\|[-=]>\)$'
+" Keywords to indent after
+let s:INDENT_AFTER_KEYWORD = '^\%(if\|unless\|else\|for\|while\|until\|'
+\                          . 'loop\|switch\|when\|try\|catch\|finally\|'
+\                          . 'class\)\>'
+
+" Operators to indent after
+let s:INDENT_AFTER_OPERATOR = '\%([([{:=]\|[-=]>\)$'
 
 " Keywords and operators that continue a line
 let s:CONTINUATION = '\<\%(is\|isnt\|and\|or\)\>$'
 \                  . '\|'
-\                  . '\%(-\@<!-\|+\@<!+\|<\|[-=]\@<!>\|\*\|/\|%\||\|'
+\                  . '\%(-\@<!-\|+\@<!+\|<\|[-=]\@<!>\|\*\|/\@<!/\|%\||\|'
 \                  . '&\|,\|\.\@<!\.\)$'
 
 " Operators that block continuation indenting
@@ -55,24 +56,34 @@ let s:SINGLE_LINE_ELSE = '^else\s\+\%(\<\%(if\|unless\)\>\)\@!'
 " Max lines to look back for a match
 let s:MAX_LOOKBACK = 50
 
+" Syntax names for strings
+let s:SYNTAX_STRING = 'coffee\%(String\|AssignString\|Embed\|Regex\|Heregex\|'
+\                   . 'Heredoc\)'
+
+" Syntax names for comments
+let s:SYNTAX_COMMENT = 'coffee\%(Comment\|BlockComment\|HeregexComment\)'
+
+" Syntax names for strings and comments
+let s:SYNTAX_STRING_COMMENT = s:SYNTAX_STRING . '\|' . s:SYNTAX_COMMENT
+
 " Get the linked syntax name of a character.
 function! s:SyntaxName(linenum, col)
-  return synIDattr(synIDtrans(synID(a:linenum, a:col, 1)), 'name')
+  return synIDattr(synID(a:linenum, a:col, 1), 'name')
 endfunction
 
 " Check if a character is in a comment.
 function! s:IsComment(linenum, col)
-  return s:SyntaxName(a:linenum, a:col) == 'Comment'
+  return s:SyntaxName(a:linenum, a:col) =~ s:SYNTAX_COMMENT
 endfunction
 
 " Check if a character is in a string.
 function! s:IsString(linenum, col)
-  return s:SyntaxName(a:linenum, a:col) == 'Constant'
+  return s:SyntaxName(a:linenum, a:col) =~ s:SYNTAX_STRING
 endfunction
 
 " Check if a character is in a comment or string.
 function! s:IsCommentOrString(linenum, col)
-  return s:SyntaxName(a:linenum, a:col) =~ 'Comment\|Constant'
+  return s:SyntaxName(a:linenum, a:col) =~ s:SYNTAX_STRING_COMMENT
 endfunction
 
 " Check if a whole line is a comment.
@@ -186,23 +197,52 @@ function! s:GetPrevNormalLine(startlinenum)
   return 0
 endfunction
 
-" Get the contents of a line without leading or trailing whitespace.
+" Try to find a comment in a line.
+function! s:FindComment(linenum)
+  let col = 0
+
+  while 1
+    call cursor(a:linenum, col + 1)
+    let [_, col] = searchpos('#', 'cn', a:linenum)
+
+    if !col
+      break
+    endif
+
+    if s:IsComment(a:linenum, col)
+      return col
+    endif
+  endwhile
+
+  return 0
+endfunction
+
+" Get a line without comments or surrounding whitespace.
 function! s:GetTrimmedLine(linenum)
-  return substitute(substitute(getline(a:linenum), '^\s\+', '', ''),
-  \                                                '\s\+$', '', '')
+  let comment = s:FindComment(a:linenum)
+  let line = getline(a:linenum)
+
+  if comment
+    " Subtract 1 to get to the column before the comment and another 1 for
+    " zero-based indexing.
+    let line = line[:comment - 2]
+  endif
+
+  return substitute(substitute(line, '^\s\+', '', ''),
+  \                                  '\s\+$', '', '')
 endfunction
 
 function! s:GetCoffeeIndent(curlinenum)
   let prevlinenum = s:GetPrevNormalLine(a:curlinenum)
 
-  " Don't do anything if there is no previous line.
+  " Don't do anything if there's no previous line.
   if !prevlinenum
     return -1
   endif
 
   let curline = s:GetTrimmedLine(a:curlinenum)
 
-  " Try to find a matching pair.
+  " Try to find a previous matching statement. This handles outdenting.
   let matchlinenum = s:GetMatch(curline)
 
   if matchlinenum
@@ -220,12 +260,19 @@ function! s:GetCoffeeIndent(curlinenum)
         return indent(linenum)
       endif
     endwhile
+
+    return -1
   endif
 
   let prevline = s:GetTrimmedLine(prevlinenum)
   let previndent = indent(prevlinenum)
 
-  " Try indenting logic.
+  " Always indent after these operators.
+  if prevline =~ s:INDENT_AFTER_OPERATOR
+    return previndent + &shiftwidth
+  endif
+
+  " Indent after a continuation if it's the first.
   if prevline =~ s:CONTINUATION
     let prevprevlinenum = s:GetPrevNormalLine(prevlinenum)
     let prevprevline = s:GetTrimmedLine(prevprevlinenum)
@@ -233,20 +280,35 @@ function! s:GetCoffeeIndent(curlinenum)
     if prevprevline !~ s:CONTINUATION && prevprevline !~ s:CONTINUATION_BLOCK
       return previndent + &shiftwidth
     endif
-  elseif prevline =~ s:INDENT_AFTER || prevline =~ s:COMPOUND_ASSIGNMENT
+
+    return -1
+  endif
+
+  " Indent after these keywords and compound assignments if they aren't a
+  " single-line statement.
+  if prevline =~ s:INDENT_AFTER_KEYWORD || prevline =~ s:COMPOUND_ASSIGNMENT
     if !s:SmartSearch(prevlinenum, '\<then\>') && prevline !~ s:SINGLE_LINE_ELSE
       return previndent + &shiftwidth
     endif
-  elseif curline =~ s:DOT_ACCESS && prevline !~ s:DOT_ACCESS
+
+    return -1
+  endif
+
+  " Indent a dot access if it's the first.
+  if curline =~ s:DOT_ACCESS && prevline !~ s:DOT_ACCESS
     return previndent + &shiftwidth
-  elseif prevline =~ s:OUTDENT_AFTER
+  endif
+
+  " Outdent after these keywords if they don't have a postfix condition or are
+  " a single-line statement.
+  if prevline =~ s:OUTDENT_AFTER
     if !s:SmartSearch(prevlinenum, s:POSTFIX_CONDITION) ||
     \   s:SmartSearch(prevlinenum, '\<then\>')
       return previndent - &shiftwidth
     endif
   endif
 
-  " No indenting or outdenting is needed
+  " No indenting or outdenting is needed.
   return -1
 endfunction
 
