@@ -3,7 +3,8 @@
 " URL:         http://github.com/kchmck/vim-coffee-script
 " License:     WTFPL
 
-if exists("b:current_syntax")
+" Bail if our syntax is already loaded.
+if exists('b:current_syntax') && b:current_syntax == 'coffee'
   finish
 endif
 
@@ -44,7 +45,10 @@ hi def link coffeeKeyword Keyword
 syn match coffeeOperator /\<\%(instanceof\|typeof\|delete\)\>/ display
 hi def link coffeeOperator Operator
 
-syn match coffeeExtendedOp /[+\-*/%&|\^=!<>?]\|\%(and\|or\)=\|\.\|::/ display
+" The first case matches symbol operators only if they have an operand before.
+syn match coffeeExtendedOp /\%(\S\s*\)\@<=[+\-*/%&|\^=!<>?]\+\|--\|++\|\.\|::/
+\                          display
+syn match coffeeExtendedOp /\%(and\|or\)=/ display
 hi def link coffeeExtendedOp coffeeOperator
 
 " This is separate from `coffeeExtendedOp` to help differentiate commas from
@@ -228,4 +232,6 @@ syn cluster coffeeAll contains=coffeeStatement,coffeeRepeat,coffeeConditional,
 \                              coffeeDotAccess,coffeeProtoAccess,
 \                              coffeeCurlies,coffeeBrackets,coffeeParens
 
-let b:current_syntax = "coffee"
+if !exists('b:current_syntax')
+  let b:current_syntax = 'coffee'
+endif
