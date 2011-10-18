@@ -12,33 +12,12 @@ let b:did_ftplugin = 1
 setlocal formatoptions-=t formatoptions+=croql
 setlocal comments=:#
 setlocal commentstring=#\ %s
+setlocal omnifunc=javascriptcomplete#CompleteJS
 
-setlocal errorformat=Error:\ In\ %f\\,\ %m\ on\ line\ %l,
-                    \Error:\ In\ %f\\,\ Parse\ error\ on\ line\ %l:\ %m,
-                    \SyntaxError:\ In\ %f\\,\ %m,
-                    \%-G%.%#
-
-" DEPRECATED: Fold by indentation, but only if enabled.
-if exists("coffee_folding")
-  setlocal foldmethod=indent
+" Enable CoffeeMake if it won't overwrite any settings.
+if !len(&l:makeprg)
+  compiler coffee
 endif
-
-" Extra options passed to CoffeeMake
-if !exists("coffee_make_options")
-  let coffee_make_options = ""
-endif
-
-" Update `makeprg` for the current filename. This is needed to support filenames
-" with spaces and quotes while also supporting generic `make`.
-function! s:SetMakePrg()
-  let &l:makeprg = "coffee -c " . g:coffee_make_options . ' $* '
-  \              . fnameescape(expand('%'))
-endfunction
-
-" Set `makeprg` initially.
-call s:SetMakePrg()
-" Reset `makeprg` on rename.
-autocmd BufFilePost,BufWritePost,FileWritePost <buffer> call s:SetMakePrg()
 
 " Reset the global variables used by CoffeeCompile.
 function! s:CoffeeCompileResetVars()
@@ -140,8 +119,14 @@ function! s:CoffeeCompile(startline, endline, args)
   " Parse arguments.
   let watch = a:args =~ '\<watch\>'
   let unwatch = a:args =~ '\<unwatch\>'
-  let vert = a:args =~ '\<vert\%[ical]\>'
   let size = str2nr(matchstr(a:args, '\<\d\+\>'))
+   
+  " Determine default split direction.
+  if exists("g:coffee_compile_vert")
+    let vert = 1
+  else
+    let vert = a:args =~ '\<vert\%[ical]\>'
+  endif
 
   " Remove any watch listeners.
   silent! autocmd! CoffeeCompileAuWatch
@@ -232,7 +217,5 @@ endif
 " Peek at compiled CoffeeScript.
 command! -range=% -bar -nargs=* -complete=customlist,s:CoffeeCompileComplete
 \        CoffeeCompile call s:CoffeeCompile(<line1>, <line2>, <q-args>)
-" Compile the current file.
-command! -bang -bar -nargs=* CoffeeMake make<bang> <args>
 " Run some CoffeeScript.
 command! -range=% -bar CoffeeRun <line1>,<line2>:w !coffee -s
