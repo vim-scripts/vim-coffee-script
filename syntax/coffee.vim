@@ -10,12 +10,10 @@ endif
 
 " Include JavaScript for coffeeEmbed.
 syn include @coffeeJS syntax/javascript.vim
+silent! unlet b:current_syntax
 
 " Highlight long strings.
-syn sync minlines=100
-
-" CoffeeScript identifiers can have dollar signs.
-setlocal isident+=$
+syntax sync fromstart
 
 " These are `matches` instead of `keywords` because vim's highlighting
 " priority for keywords is higher than matches. This causes keywords to be
@@ -45,7 +43,7 @@ syn match coffeeOperator /\<\%(instanceof\|typeof\|delete\)\>/ display
 hi def link coffeeOperator Operator
 
 " The first case matches symbol operators only if they have an operand before.
-syn match coffeeExtendedOp /\%(\S\s*\)\@<=[+\-*/%&|\^=!<>?.]\+\|[-=]>\|--\|++\|:/
+syn match coffeeExtendedOp /\%(\S\s*\)\@<=[+\-*/%&|\^=!<>?.]\{-1,}\|[-=]>\|--\|++\|:/
 \                          display
 syn match coffeeExtendedOp /\<\%(and\|or\)=/ display
 hi def link coffeeExtendedOp coffeeOperator
@@ -63,9 +61,11 @@ hi def link coffeeGlobal Type
 
 " A special variable
 syn match coffeeSpecialVar /\<\%(this\|prototype\|arguments\)\>/ display
-" An @-variable
-syn match coffeeSpecialVar /@\%(\I\i*\)\?/ display
 hi def link coffeeSpecialVar Special
+
+" An @-variable
+syn match coffeeSpecialIdent /@\%(\%(\I\|\$\)\%(\i\|\$\)*\)\?/ display
+hi def link coffeeSpecialIdent Identifier
 
 " A class-like name that starts with a capital letter
 syn match coffeeObject /\<\u\w*\>/ display
@@ -76,8 +76,8 @@ syn match coffeeConstant /\<\u[A-Z0-9_]\+\>/ display
 hi def link coffeeConstant Constant
 
 " A variable name
-syn cluster coffeeIdentifier contains=coffeeSpecialVar,coffeeObject,
-\                                     coffeeConstant
+syn cluster coffeeIdentifier contains=coffeeSpecialVar,coffeeSpecialIdent,
+\                                     coffeeObject,coffeeConstant
 
 " A non-interpolated string
 syn cluster coffeeBasicString contains=@Spell,coffeeEscape
@@ -92,26 +92,27 @@ syn region coffeeString start=/'/ skip=/\\\\\|\\'/ end=/'/
 hi def link coffeeString String
 
 " A integer, including a leading plus or minus
-syn match coffeeNumber /\i\@<![-+]\?\d\+\%([eE][+-]\?\d\+\)\?/ display
-" A hex number
+syn match coffeeNumber /\%(\i\|\$\)\@<![-+]\?\d\+\%([eE][+-]\?\d\+\)\?/ display
+" A hex, binary, or octal number
 syn match coffeeNumber /\<0[xX]\x\+\>/ display
-syn match coffeeNumber /\<0b[01]\+\>/ display
+syn match coffeeNumber /\<0[bB][01]\+\>/ display
+syn match coffeeNumber /\<0[oO][0-7]\+\>/ display
+syn match coffeeNumber /\<\%(Infinity\|NaN\)\>/ display
 hi def link coffeeNumber Number
 
 " A floating-point number, including a leading plus or minus
-syn match coffeeFloat /\i\@<![-+]\?\d*\.\@<!\.\d\+\%([eE][+-]\?\d\+\)\?/
+syn match coffeeFloat /\%(\i\|\$\)\@<![-+]\?\d*\.\@<!\.\d\+\%([eE][+-]\?\d\+\)\?/
 \                     display
 hi def link coffeeFloat Float
 
-" An error for reserved keywords
-if !exists("coffee_no_reserved_words_error")
-  syn match coffeeReservedError /\<\%(case\|default\|function\|var\|void\|with\|const\|let\|enum\|export\|import\|native\|__hasProp\|__extends\|__slice\|__bind\|__indexOf\)\>/
-  \                             display
-  hi def link coffeeReservedError Error
-endif
+" An error for reserved keywords, taken from the RESERVED array:
+" http://coffeescript.org/documentation/docs/lexer.html#section-67
+syn match coffeeReservedError /\<\%(case\|default\|function\|var\|void\|with\|const\|let\|enum\|export\|import\|native\|__hasProp\|__extends\|__slice\|__bind\|__indexOf\|implements\|interface\|package\|private\|protected\|public\|static\|yield\)\>/
+\                             display
+hi def link coffeeReservedError Error
 
 " A normal object assignment
-syn match coffeeObjAssign /@\?\I\i*\s*\ze::\@!/ contains=@coffeeIdentifier display
+syn match coffeeObjAssign /@\?\%(\I\|\$\)\%(\i\|\$\)*\s*\ze::\@!/ contains=@coffeeIdentifier display
 hi def link coffeeObjAssign Identifier
 
 syn keyword coffeeTodo TODO FIXME XXX contained
@@ -131,7 +132,7 @@ hi def link coffeeHeregexComment coffeeComment
 
 " Embedded JavaScript
 syn region coffeeEmbed matchgroup=coffeeEmbedDelim
-\                      start=/`/ skip=/\\\\\|\\`/ end=/`/
+\                      start=/`/ skip=/\\\\\|\\`/ end=/`/ keepend
 \                      contains=@coffeeJS
 hi def link coffeeEmbedDelim Delimiter
 
@@ -145,17 +146,23 @@ hi def link coffeeEscape SpecialChar
 
 " A regex -- must not follow a parenthesis, number, or identifier, and must not
 " be followed by a number
-syn region coffeeRegex start=/\%(\%()\|\i\@<!\d\)\s*\|\i\)\@<!\/=\@!\s\@!/
-\                      skip=/\[[^\]]\{-}\/[^\]]\{-}\]/
-\                      end=/\/[gimy]\{,4}\d\@!/
-\                      oneline contains=@coffeeBasicString
+syn region coffeeRegex start=#\%(\%()\|\%(\i\|\$\)\@<!\d\)\s*\|\i\)\@<!/=\@!\s\@!#
+\                      end=#/[gimy]\{,4}\d\@!#
+\                      oneline contains=@coffeeBasicString,coffeeRegexCharSet
+syn region coffeeRegexCharSet start=/\[/ end=/]/ contained
+\                             contains=@coffeeBasicString
 hi def link coffeeRegex String
+hi def link coffeeRegexCharSet coffeeRegex
 
 " A heregex
-syn region coffeeHeregex start=/\/\/\// end=/\/\/\/[gimy]\{,4}/
-\                        contains=@coffeeInterpString,coffeeHeregexComment
+syn region coffeeHeregex start=#///# end=#///[gimy]\{,4}#
+\                        contains=@coffeeInterpString,coffeeHeregexComment,
+\                                  coffeeHeregexCharSet
 \                        fold
+syn region coffeeHeregexCharSet start=/\[/ end=/]/ contained
+\                               contains=@coffeeInterpString
 hi def link coffeeHeregex coffeeRegex
+hi def link coffeeHeregexCharSet coffeeHeregex
 
 " Heredoc strings
 syn region coffeeHeredoc start=/"""/ end=/"""/ contains=@coffeeInterpString
@@ -165,23 +172,19 @@ syn region coffeeHeredoc start=/'''/ end=/'''/ contains=@coffeeBasicString
 hi def link coffeeHeredoc String
 
 " An error for trailing whitespace, as long as the line isn't just whitespace
-if !exists("coffee_no_trailing_space_error")
-  syn match coffeeSpaceError /\S\@<=\s\+$/ display
-  hi def link coffeeSpaceError Error
-endif
+syn match coffeeSpaceError /\S\@<=\s\+$/ display
+hi def link coffeeSpaceError Error
 
 " An error for trailing semicolons, for help transitioning from JavaScript
-if !exists("coffee_no_trailing_semicolon_error")
-  syn match coffeeSemicolonError /;$/ display
-  hi def link coffeeSemicolonError Error
-endif
+syn match coffeeSemicolonError /;$/ display
+hi def link coffeeSemicolonError Error
 
 " Ignore reserved words in dot accesses.
-syn match coffeeDotAccess /\.\@<!\.\s*\I\i*/he=s+1 contains=@coffeeIdentifier
+syn match coffeeDotAccess /\.\@<!\.\s*\%(\I\|\$\)\%(\i\|\$\)*/he=s+1 contains=@coffeeIdentifier
 hi def link coffeeDotAccess coffeeExtendedOp
 
 " Ignore reserved words in prototype accesses.
-syn match coffeeProtoAccess /::\s*\I\i*/he=s+2 contains=@coffeeIdentifier
+syn match coffeeProtoAccess /::\s*\%(\I\|\$\)\%(\i\|\$\)*/he=s+2 contains=@coffeeIdentifier
 hi def link coffeeProtoAccess coffeeExtendedOp
 
 " This is required for interpolations to work.
@@ -203,14 +206,15 @@ hi def link coffeeParen coffeeBlock
 syn cluster coffeeAll contains=coffeeStatement,coffeeRepeat,coffeeConditional,
 \                              coffeeException,coffeeKeyword,coffeeOperator,
 \                              coffeeExtendedOp,coffeeSpecialOp,coffeeBoolean,
-\                              coffeeGlobal,coffeeSpecialVar,coffeeObject,
-\                              coffeeConstant,coffeeString,coffeeNumber,
-\                              coffeeFloat,coffeeReservedError,coffeeObjAssign,
-\                              coffeeComment,coffeeBlockComment,coffeeEmbed,
-\                              coffeeRegex,coffeeHeregex,coffeeHeredoc,
-\                              coffeeSpaceError,coffeeSemicolonError,
-\                              coffeeDotAccess,coffeeProtoAccess,
-\                              coffeeCurlies,coffeeBrackets,coffeeParens
+\                              coffeeGlobal,coffeeSpecialVar,coffeeSpecialIdent,
+\                              coffeeObject,coffeeConstant,coffeeString,
+\                              coffeeNumber,coffeeFloat,coffeeReservedError,
+\                              coffeeObjAssign,coffeeComment,coffeeBlockComment,
+\                              coffeeEmbed,coffeeRegex,coffeeHeregex,
+\                              coffeeHeredoc,coffeeSpaceError,
+\                              coffeeSemicolonError,coffeeDotAccess,
+\                              coffeeProtoAccess,coffeeCurlies,coffeeBrackets,
+\                              coffeeParens
 
 if !exists('b:current_syntax')
   let b:current_syntax = 'coffee'
